@@ -2,17 +2,16 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Layered Coloring Canvas with Color Mixer</title>
+<title>Simple Vector Coloring with Rainbow Palette</title>
 <style>
   body {
-    background: #111;
+    background: #222;
     color: white;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    text-align: center;
     margin: 0;
     padding: 20px;
-    box-sizing: border-box;
     user-select: none;
+    text-align: center;
   }
   #palette {
     margin-bottom: 10px;
@@ -21,9 +20,9 @@
     width: 32px;
     height: 32px;
     border: none;
-    margin: 0 5px;
+    margin: 0 4px;
     cursor: pointer;
-    border-radius: 4px;
+    border-radius: 5px;
     transition: transform 0.1s ease;
   }
   #palette button:hover {
@@ -33,61 +32,12 @@
     width: 40px;
     height: 40px;
     border: 2px solid white;
+    border-radius: 6px;
+    box-shadow: 0 0 8px #fff8;
     display: inline-block;
     vertical-align: middle;
-    margin-left: 10px;
-    border-radius: 6px;
-    box-shadow: 0 0 6px #fff8;
-  }
-  #colorMixer {
-    margin: 10px auto 20px;
-    display: inline-block;
-    background: #222;
-    padding: 15px 20px;
-    border-radius: 8px;
-    box-shadow: 0 0 15px #555;
-    user-select: none;
-  }
-  #colorMixer label {
-    display: block;
-    font-size: 14px;
-    margin-top: 10px;
-    margin-bottom: 4px;
-    text-align: left;
-  }
-  #colorMixer input[type="color"],
-  #colorMixer input[type="range"] {
-    width: 180px;
-    border-radius: 6px;
-    cursor: pointer;
-    display: block;
-  }
-  #hexInput {
-    width: 100px;
-    padding: 6px 8px;
-    font-size: 16px;
     margin-left: 15px;
-    border-radius: 4px;
-    border: none;
-    outline: none;
-    background: #222;
-    color: white;
-    text-align: center;
-  }
-  #container {
-    margin: 0 auto;
-    position: relative;
-  }
-  canvas {
-    display: block;
-    margin: 0 auto;
-    background: transparent;
-    user-select: none;
-  }
-  #infoBox {
-    margin-top: 10px;
-    font-family: monospace;
-    font-size: 14px;
+    cursor: pointer;
   }
   #clearBtn {
     margin-left: 20px;
@@ -103,158 +53,72 @@
   #clearBtn:hover {
     background: #ff4444;
   }
-  /* Flex container for selected color and hex + clear */
-  #colorControls {
-    display: inline-flex;
-    align-items: center;
-    margin-top: 10px;
+  #container {
+    margin: 0 auto;
+    position: relative;
+    width: 80vw;
+    height: 80vh;
+    max-width: 800px;
+    max-height: 800px;
+    border: 3px solid black; /* <-- white box border around canvas */
+  }
+  canvas {
+    display: block;
+    margin: 0 auto;
+    background: transparent;
+    user-select: none;
+    position: absolute;
+    top: 0; left: 0;
   }
 </style>
 </head>
 <body>
-  <h1>Layered Coloring Canvas</h1>
 
   <div id="palette"></div>
 
-  <div id="colorMixer">
-    <label for="colorPicker">Pick Base Color</label>
-    <input type="color" id="colorPicker" value="#ffffff" />
-    <label for="brightnessRange">Brightness</label>
-    <input type="range" id="brightnessRange" min="0" max="200" value="100" />
-    <label for="alphaRange">Opacity</label>
-    <input type="range" id="alphaRange" min="0" max="100" value="100" />
-  </div>
-
   <div id="colorControls">
-    Selected: <div id="selectedColor"></div>
-    <input id="hexInput" type="text" placeholder="#RRGGBB" maxlength="7" />
+    <div id="selectedColor" title="Selected Color"></div>
     <button id="clearBtn" title="Clear all colors">Clear Canvas</button>
   </div>
 
   <div id="container"></div>
 
-  <div id="infoBox">
-    Coordinates: <span id="coords">??, ??</span> |
-    Canvas Size: <span id="canvasSize">?? x ??</span>
-  </div>
-
 <script>
-  // Helpers to convert and adjust color brightness & alpha
-  function hexToRgb(hex) {
-    const m = hex.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
-    return m ? {
-      r: parseInt(m[1], 16),
-      g: parseInt(m[2], 16),
-      b: parseInt(m[3], 16)
-    } : null;
-  }
+  const defaultBoundariesURL = "https://files.catbox.moe/etaeai.json";
 
-  function rgbToHex(r, g, b) {
-    return "#" + [r, g, b].map(x => x.toString(16).padStart(2, "0")).join('');
-  }
-
-  function adjustBrightness(rgb, percent) {
-    // percent = 0 to 200, 100 = normal brightness
-    return {
-      r: Math.min(255, Math.max(0, Math.round(rgb.r * (percent / 100)))),
-      g: Math.min(255, Math.max(0, Math.round(rgb.g * (percent / 100)))),
-      b: Math.min(255, Math.max(0, Math.round(rgb.b * (percent / 100))))
-    };
-  }
-
-  // Main elements
-  const container = document.getElementById("container");
   const paletteDiv = document.getElementById("palette");
   const selectedColorBox = document.getElementById("selectedColor");
-  const hexInput = document.getElementById("hexInput");
-  const coordsSpan = document.getElementById("coords");
-  const canvasSizeSpan = document.getElementById("canvasSize");
-
-  const colorPicker = document.getElementById("colorPicker");
-  const brightnessRange = document.getElementById("brightnessRange");
-  const alphaRange = document.getElementById("alphaRange");
   const clearBtn = document.getElementById("clearBtn");
+  const container = document.getElementById("container");
 
-  // Fixed palette colors for quick selection
-  const paletteColors = ["#ffffff", "#ff0000", "#00ff00", "#0000ff", "#ffff00", "#ff00ff", "#00ffff"];
-  let selectedColor = "#ffffff";
-  let selectedAlpha = 1.0;
+  const paletteColors = [
+    "#FFFFFF", // added white as first color
+    "#FF0000", "#FF7F00", "#FFFF00", "#00FF00", "#0000FF", "#4B0082", "#8B00FF",
+    "#FF9999", "#FFBF80", "#FFFF99", "#99FF99", "#9999FF", "#B399FF",
+    "#800000", "#804000", "#808000", "#004000", "#000080", "#330066"
+  ];
 
-  // Update all controls to reflect new selected color
-  function updateControls(color, alpha = 1) {
-    // Update hex input
-    hexInput.value = color;
-    // Update picker
-    colorPicker.value = color;
-    // Update brightness slider (calculate brightness based on max channel)
-    const rgb = hexToRgb(color);
-    const maxChannel = Math.max(rgb.r, rgb.g, rgb.b);
-    const brightnessPercent = maxChannel / 255 * 100;
-    brightnessRange.value = brightnessPercent;
-    // Update alpha slider
-    alphaRange.value = alpha * 100;
-    // Update selectedColor box with rgba color for opacity effect
-    selectedColorBox.style.background = `rgba(${rgb.r},${rgb.g},${rgb.b},${alpha})`;
+  let selectedColor = paletteColors[0];
+  selectedColorBox.style.background = selectedColor;
 
+  function updateSelectedColor(color) {
     selectedColor = color;
-    selectedAlpha = alpha;
+    selectedColorBox.style.background = color;
   }
 
-  // Initialize palette buttons
   paletteColors.forEach(color => {
     const btn = document.createElement("button");
     btn.style.background = color;
-    btn.title = color;
     btn.onclick = () => {
-      updateControls(color, 1);
+      updateSelectedColor(color);
     };
     paletteDiv.appendChild(btn);
   });
-
-  // Sync inputs when color picker changes
-  colorPicker.addEventListener("input", () => {
-    const baseRgb = hexToRgb(colorPicker.value);
-    const brightPercent = brightnessRange.value;
-    const adjustedRgb = adjustBrightness(baseRgb, brightPercent);
-    const adjustedHex = rgbToHex(adjustedRgb.r, adjustedRgb.g, adjustedRgb.b);
-    updateControls(adjustedHex, alphaRange.value / 100);
-  });
-
-  // Brightness slider changes
-  brightnessRange.addEventListener("input", () => {
-    const baseRgb = hexToRgb(colorPicker.value);
-    const brightPercent = brightnessRange.value;
-    const adjustedRgb = adjustBrightness(baseRgb, brightPercent);
-    const adjustedHex = rgbToHex(adjustedRgb.r, adjustedRgb.g, adjustedRgb.b);
-    updateControls(adjustedHex, alphaRange.value / 100);
-  });
-
-  // Alpha slider changes
-  alphaRange.addEventListener("input", () => {
-    const baseRgb = hexToRgb(colorPicker.value);
-    const brightPercent = brightnessRange.value;
-    const adjustedRgb = adjustBrightness(baseRgb, brightPercent);
-    const adjustedHex = rgbToHex(adjustedRgb.r, adjustedRgb.g, adjustedRgb.b);
-    updateControls(adjustedHex, alphaRange.value / 100);
-  });
-
-  // Manual hex input update
-  hexInput.addEventListener("input", () => {
-    let val = hexInput.value.trim();
-    if(/^#([0-9A-Fa-f]{6})$/.test(val)) {
-      updateControls(val, alphaRange.value / 100);
-    }
-  });
-
-  // Boundaries and shapes setup
-  const defaultImageURL = "https://files.catbox.moe/fylnce.json";
-  const defaultBoundariesURL = "https://files.catbox.moe/etaeai.json";
 
   let boundariesData;
   let shapeColors = {};
   let origWidth, origHeight;
 
-  let baseCanvases = [];
   let coloringCanvas;
   let coloringCtx;
 
@@ -292,7 +156,7 @@
   }
 
   function fillShape(ctx, shape, color) {
-    ctx.fillStyle = color;
+    ctx.fillStyle = color || "#FFFFFF";
     ctx.beginPath();
     const outer = shape.outer;
     ctx.moveTo(outer[0][0], outer[0][1]);
@@ -310,12 +174,12 @@
   function redrawColors(ctx) {
     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
     ctx.globalCompositeOperation = "source-over";
-    for (const index in shapeColors) {
+    for (const index in boundariesData.boundaries) {
       fillShape(ctx, boundariesData.boundaries[index], shapeColors[index]);
     }
   }
 
-  function resizeCanvases() {
+  function resizeCanvas() {
     const maxWidth = window.innerWidth * 0.8;
     const maxHeight = window.innerHeight * 0.8;
     const aspect = origWidth / origHeight;
@@ -332,64 +196,16 @@
     container.style.width = displayWidth + "px";
     container.style.height = displayHeight + "px";
 
-    baseCanvases.forEach(c => {
-      c.style.width = displayWidth + "px";
-      c.style.height = displayHeight + "px";
-    });
-
     coloringCanvas.style.width = displayWidth + "px";
     coloringCanvas.style.height = displayHeight + "px";
-
-    // Update canvas size info
-    canvasSizeSpan.textContent = `${origWidth} x ${origHeight}`;
   }
 
   async function start() {
-    const [imagesRes, boundsRes] = await Promise.all([
-      fetch(defaultImageURL),
-      fetch(defaultBoundariesURL)
-    ]);
-    const imageData = await imagesRes.json();
+    const boundsRes = await fetch(defaultBoundariesURL);
     boundariesData = await boundsRes.json();
 
     origWidth = boundariesData.width;
     origHeight = boundariesData.height;
-
-    baseCanvases = imageData.map(() => {
-      const c = document.createElement("canvas");
-      c.width = origWidth;
-      c.height = origHeight;
-      c.style.position = "absolute";
-      container.appendChild(c);
-      return c;
-    });
-
-    // Draw images forcing pure white for white pixels (no shades)
-    imageData.forEach((src, i) => {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = () => {
-        const ctx = baseCanvases[i].getContext("2d");
-        ctx.clearRect(0, 0, origWidth, origHeight);
-        ctx.drawImage(img, 0, 0, origWidth, origHeight);
-
-        // Fix whites to pure #FFFFFF - replace pixels close to white with pure white
-        const imgData = ctx.getImageData(0, 0, origWidth, origHeight);
-        for (let p = 0; p < imgData.data.length; p += 4) {
-          const r = imgData.data[p];
-          const g = imgData.data[p + 1];
-          const b = imgData.data[p + 2];
-          // If very close to white, force pure white
-          if (r > 240 && g > 240 && b > 240) {
-            imgData.data[p] = 255;
-            imgData.data[p + 1] = 255;
-            imgData.data[p + 2] = 255;
-          }
-        }
-        ctx.putImageData(imgData, 0, 0);
-      };
-      img.src = src;
-    });
 
     coloringCanvas = document.createElement("canvas");
     coloringCanvas.width = origWidth;
@@ -398,58 +214,34 @@
     container.appendChild(coloringCanvas);
     coloringCtx = coloringCanvas.getContext("2d");
 
-    resizeCanvases();
-    window.addEventListener("resize", resizeCanvases);
+    redrawColors(coloringCtx);
 
-    coloringCanvas.addEventListener("mousemove", e => {
-      const rect = coloringCanvas.getBoundingClientRect();
-
-      const scaleX = origWidth / rect.width;
-      const scaleY = origHeight / rect.height;
-
-      const mouseX = Math.floor((e.clientX - rect.left) * scaleX);
-      const mouseY = Math.floor((e.clientY - rect.top) * scaleY);
-
-      if(mouseX < 0 || mouseY < 0 || mouseX > origWidth || mouseY > origHeight) {
-        coordsSpan.textContent = `??, ??`;
-      } else {
-        coordsSpan.textContent = `${mouseX}, ${mouseY}`;
-      }
-    });
+    resizeCanvas();
+    window.addEventListener("resize", resizeCanvas);
 
     coloringCanvas.addEventListener("click", e => {
       const rect = coloringCanvas.getBoundingClientRect();
-
       const scaleX = origWidth / rect.width;
       const scaleY = origHeight / rect.height;
+      const x = Math.floor((e.clientX - rect.left) * scaleX);
+      const y = Math.floor((e.clientY - rect.top) * scaleY);
 
-      const mouseX = (e.clientX - rect.left) * scaleX;
-      const mouseY = (e.clientY - rect.top) * scaleY;
-
-      const index = getClickedShapeIndex(mouseX, mouseY);
-      if (index !== null) {
-        // Apply alpha by using rgba if not 1
-        if (selectedAlpha < 1) {
-          const rgb = hexToRgb(selectedColor);
-          shapeColors[index] = `rgba(${rgb.r},${rgb.g},${rgb.b},${selectedAlpha.toFixed(2)})`;
-        } else {
-          shapeColors[index] = selectedColor;
-        }
+      const shapeIndex = getClickedShapeIndex(x, y);
+      if (shapeIndex !== null) {
+        // Always set selected color (no toggle)
+        shapeColors[shapeIndex] = selectedColor;
         redrawColors(coloringCtx);
       }
     });
 
-    // Clear canvas button handler
     clearBtn.addEventListener("click", () => {
       shapeColors = {};
       redrawColors(coloringCtx);
     });
-
-    // Initialize controls
-    updateControls(selectedColor, 1);
   }
 
   start();
 </script>
+
 </body>
 </html>
