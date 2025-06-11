@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Layered Coloring Canvas</title>
+<style>
+  body {
+    background: #111;
+    color: white;
+    font-family: sans-serif;
+    text-align: center;
+    margin: 0;
+    padding: 20px;
+    box-sizing: border-box;
+    user-select: none;
+  }
+  #palette {
+    margin-bottom: 10px;
+  }
+  #palette button {
+    width: 32px;
+    height: 32px;
+    border: none;
+    margin: 0 5px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: transform 0.1s ease;
+  }
+  #palette button:hover {
+    transform: scale(1.2);
+  }
+  #selectedColor {
+    width: 32px;
+    height: 32px;
+    border: 2px solid white;
+    display: inline-block;
+    vertical-align: middle;
+    margin-left: 10px;
+    border-radius: 4px;
+  }
+  #hexInput {
+    width: 100px;
+    padding: 4px 8px;
+    font-size: 16px;
+    margin-left: 15px;
+    border-radius: 4px;
+    border: none;
+    outline: none;
+  }
+  #container {
+    margin: 0 auto;
+    position: relative;
+  }
+  canvas {
+    display: block;
+    margin: 0 auto;
+    background: transparent;
+    user-select: none;
+  }
+</style>
+</head>
+<body>
+  <h1>Layered Coloring Canvas</h1>
+  <div id="palette"></div>
+  <div style="display: inline-block; vertical-align: middle;">
+    Selected: <div id="selectedColor"></div>
+    <input id="hexInput" type="text" placeholder="#RRGGBB" maxlength="7" />
+  </div>
+  <div id="container"></div>
+
+<script>
+  const defaultImageURL = "https://files.catbox.moe/bof1hi.json"; // image URLs array JSON
+  const defaultBoundariesURL = "https://files.catbox.moe/rb204s.json"; // boundaries JSON
+
+  const container = document.getElementById("container");
+  const paletteDiv = document.getElementById("palette");
+  const selectedColorBox = document.getElementById("selectedColor");
+  const hexInput = document.getElementById("hexInput");
+
+  // Default colors for palette
+  const paletteColors = ["#ffffff", "#ff0000", "#00ff00", "#0000ff", "#ffff00", "#ff00ff", "#00ffff"];
+  let selectedColor = "#ffffff";
+
+  selectedColorBox.style.background = selectedColor;
+  hexInput.value = selectedColor;
+
+  paletteColors.forEach(color => {
+    const btn = document.createElement("button");
+    btn.style.background = color;
+    btn.title = color;
+    btn.onclick = () => {
+      selectedColor = color;
+      selectedColorBox.style.background = color;
+      hexInput.value = color;
+    };
+    paletteDiv.appendChild(btn);
+  });
+
+  hexInput.addEventListener("input", () => {
+    let val = hexInput.value.trim();
+    if(/^#([0-9A-Fa-f]{6})$/.test(val)) {
+      selectedColor = val;
+      selectedColorBox.style.background = val;
+    }
+  });
+
+  let boundariesData;
+  let shapeColors = {};
+  let origWidth, origHeight;
+
+  // Create canvas for base images and coloring
+  let baseCanvases = [];
+  let coloringCanvas;
+  let coloringCtx;
+
+  // Point in polygon function (ray casting)
+  function pointInPolygon(x, y, polygon) {
+    let inside = false;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      const xi = polygon[i][0], yi = polygon[i][1];
+      const xj = polygon[j][0], yj = polygon[j][1];
+      const intersect = ((yi > y) !== (yj > y)) &&
+                        (x < (xj - xi) * (y - yi) / ((yj - yi) + 0.00001) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+
+  function getClickedShapeIndex(x, y) {
+    for (let index = 0; index < boundariesData.boundaries.length; index++) {
+      const shape = boundariesData.boundaries[index];
+      if (pointInPolygon(x, y, shape.outer)) {
+        if (shape.inner) {
+          let insideHole = false;
+          for (const hole of shape.inner) {
+            if (pointInPolygon(x, y, hole)) {
+              insideHole = true;
+              break;
+            }
+          }
+          if (!insideHole) return index;
+        } else {
+          return index;
+        }
+      }
+    }
+    return null;
+  }
+
+  function fillShape(ctx, shape, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    const outer = shape.outer;
+    ctx.moveTo(outer[0][0], outer[0][1]);
+    for (let i = 1; i < outer.length; i++) ctx.lineTo(outer[i][0], outer[i][1]);
+    if (shape.inner) {
+      shape.inner.forEach(hole => {
+        ctx.moveTo(hole[0][0], hole[0][1]);
+        for (let i = 1; i < hole.length; i++) ctx.lineTo(hole[i][0], hole[i][1]);
+      });
+    }
+    ctx.closePath();
+    ctx.fill("evenodd");
+  }
+
+  function redrawColors(ctx) {
+    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    // Use globalCompositeOperation for smooth tinting
+    ctx.globalCompositeOperation = "source-over";
+
+    for (const index in shapeColors) {
+      fillShape(ctx, boundariesData.boundaries[index], shapeColors[index]);
+    }
+  }
+
+  function resizeCanvases() {
+    const maxWidth = window.innerWidth * 0.8;
+    const maxHeight = window.innerHeight * 0.8;
+    const aspect = origWidth / origHeight;
+
+    let displayWidth, displayHeight;
+    if (maxWidth / maxHeight > aspect) {
+      displayHeight = maxHeight;
+      displayWidth = maxHeight * aspect;
+    } else {
+      displayWidth = maxWidth;
+      displayHeight = maxWidth / aspect;
+    }
+
+    container.style.width = displayWidth + "px";
+    container.style.height = displayHeight + "px";
+
+    // Set CSS size to scale canvases, keep internal resolution the same
+    baseCanvases.forEach(c => {
+      c.style.width = displayWidth + "px";
+      c.style.height = displayHeight + "px";
+    });
+
+    coloringCanvas.style.width = displayWidth + "px";
+    coloringCanvas.style.height = displayHeight + "px";
+  }
+
+  async function start() {
+    // Fetch both JSONs
+    const [imagesRes, boundsRes] = await Promise.all([
+      fetch(defaultImageURL),
+      fetch(defaultBoundariesURL)
+    ]);
+    const imageData = await imagesRes.json();
+    boundariesData = await boundsRes.json();
+
+    origWidth = boundariesData.width;
+    origHeight = boundariesData.height;
+
+    // Create base canvases for layers
+    baseCanvases = imageData.map(() => {
+      const c = document.createElement("canvas");
+      c.width = origWidth;
+      c.height = origHeight;
+      c.style.position = "absolute";
+      container.appendChild(c);
+      return c;
+    });
+
+    // Draw each image layer onto its canvas
+    imageData.forEach((src, i) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        const ctx = baseCanvases[i].getContext("2d");
+        ctx.clearRect(0, 0, origWidth, origHeight);
+        ctx.drawImage(img, 0, 0, origWidth, origHeight);
+      };
+      img.src = src;
+    });
+
+    // Create coloring canvas on top
+    coloringCanvas = document.createElement("canvas");
+    coloringCanvas.width = origWidth;
+    coloringCanvas.height = origHeight;
+    coloringCanvas.style.position = "absolute";
+    container.appendChild(coloringCanvas);
+    coloringCtx = coloringCanvas.getContext("2d");
+
+    // Initial resize
+    resizeCanvases();
+
+    // Handle window resizing
+    window.addEventListener("resize", () => {
+      resizeCanvases();
+    });
+
+    coloringCanvas.addEventListener("click", e => {
+      const rect = coloringCanvas.getBoundingClientRect();
+
+      // Scale mouse coords back to original image coords
+      const scaleX = origWidth / rect.width;
+      const scaleY = origHeight / rect.height;
+
+      const mouseX = (e.clientX - rect.left) * scaleX;
+      const mouseY = (e.clientY - rect.top) * scaleY;
+
+      const index = getClickedShapeIndex(mouseX, mouseY);
+      if (index !== null) {
+        shapeColors[index] = selectedColor;
+        redrawColors(coloringCtx);
+      }
+    });
+  }
+
+  start();
+</script>
+</body>
+</html>
