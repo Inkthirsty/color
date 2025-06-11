@@ -8,302 +8,224 @@
       background: #111;
       color: white;
       font-family: sans-serif;
-      margin: 0;
-      padding: 0;
-    }
-    #controls {
-      padding: 10px;
-      background: #222;
-      display: flex;
-      align-items: center;
-      flex-wrap: wrap;
-      justify-content: center;
+      text-align: center;
+      padding: 20px;
     }
     #palette button {
       width: 32px;
       height: 32px;
-      margin: 4px;
+      margin: 0 5px;
       border: none;
       border-radius: 4px;
       cursor: pointer;
+      transition: transform 0.1s ease;
     }
-    #selectedColorBox {
-      margin-left: 20px;
+    #palette button:hover { transform: scale(1.2); }
+    #selectedColor {
       width: 32px;
       height: 32px;
+      display: inline-block;
       border: 2px solid white;
       border-radius: 4px;
+      vertical-align: middle;
+      margin-left: 10px;
     }
     #hexInput {
-      margin-left: 10px;
-      width: 80px;
-      padding: 5px;
-    }
-    #colorPicker {
-      margin-left: 10px;
-    }
-    #clearBtn {
-      margin-left: 20px;
-      padding: 6px 10px;
-      background: #444;
-      color: white;
-      border: none;
-      cursor: pointer;
+      width: 100px;
+      padding: 4px 8px;
+      font-size: 16px;
+      margin-left: 15px;
       border-radius: 4px;
+      border: none;
     }
     #container {
       position: relative;
-      margin: 0 auto;
-      display: block;
-      max-width: 100%;
+      margin: auto;
+      user-select: none;
     }
     canvas {
       position: absolute;
       top: 0;
       left: 0;
-      image-rendering: pixelated;
+      display: block;
     }
-    #infoPanel {
-      padding: 10px;
-      background: #222;
+    #infoBox {
+      margin-top: 10px;
       font-family: monospace;
       font-size: 14px;
-      display: flex;
-      justify-content: space-between;
-    }
-    #clickResults {
-      padding: 10px;
-      background: #000;
-      color: #0f0;
-      font-size: 14px;
-      font-family: monospace;
-      max-height: 100px;
-      overflow-y: auto;
     }
   </style>
 </head>
 <body>
-  <div id="controls">
-    <div id="palette"></div>
-    <div id="selectedColorBox"></div>
-    <input type="text" id="hexInput" placeholder="#RRGGBB" />
-    <input type="color" id="colorPicker" />
-    <button id="clearBtn">Clear Canvas</button>
+  <h1>Layered Coloring Canvas</h1>
+  <div id="palette"></div>
+  <div style="display: inline-block;">
+    Selected: <div id="selectedColor"></div>
+    <input id="hexInput" type="text" placeholder="#RRGGBB" maxlength="7" />
   </div>
   <div id="container"></div>
-  <div id="infoPanel">
-    <span id="coords">Coords: ??, ??</span>
-    <span id="canvasSize">Canvas Size: ?? x ??</span>
+  <div id="infoBox">
+    Coordinates: <span id="coords">??, ??</span> |
+    Canvas Size: <span id="canvasSize">?? x ??</span>
   </div>
-  <div id="clickResults">Clicked Shape Indexes:</div>
 
-<script>
-const defaultImageURL = "https://files.catbox.moe/to7wun.json";
-const defaultBoundariesURL = "https://files.catbox.moe/fak5gd.json";
+  <script>
+    const defaultImageURL = "https://files.catbox.moe/kktsc1.json";
+    const defaultBoundariesURL = "https://files.catbox.moe/fak5gd.json";
 
-const paletteColors = ["#ffffff", "#ff0000", "#00ff00", "#0000ff", "#ffff00", "#ff00ff", "#00ffff"];
-let selectedColor = "#ffffff";
-let boundariesData, shapeColors = {};
-let origWidth, origHeight;
+    const paletteColors = ["#ffffff", "#ff0000", "#00ff00", "#0000ff", "#ffff00", "#ff00ff", "#00ffff"];
+    const paletteDiv = document.getElementById("palette");
+    const selectedColorBox = document.getElementById("selectedColor");
+    const hexInput = document.getElementById("hexInput");
+    const coordsSpan = document.getElementById("coords");
+    const canvasSizeSpan = document.getElementById("canvasSize");
+    const container = document.getElementById("container");
 
-const container = document.getElementById("container");
-const paletteDiv = document.getElementById("palette");
-const selectedColorBox = document.getElementById("selectedColorBox");
-const hexInput = document.getElementById("hexInput");
-const colorPicker = document.getElementById("colorPicker");
-const coordsSpan = document.getElementById("coords");
-const canvasSizeSpan = document.getElementById("canvasSize");
-const clickResults = document.getElementById("clickResults");
-const clearBtn = document.getElementById("clearBtn");
+    let selectedColor = "#ffffff";
+    selectedColorBox.style.background = selectedColor;
+    hexInput.value = selectedColor;
 
-selectedColorBox.style.background = selectedColor;
-hexInput.value = selectedColor;
-colorPicker.value = selectedColor;
+    paletteColors.forEach(color => {
+      const btn = document.createElement("button");
+      btn.style.background = color;
+      btn.onclick = () => {
+        selectedColor = color;
+        selectedColorBox.style.background = color;
+        hexInput.value = color;
+      };
+      paletteDiv.appendChild(btn);
+    });
 
-paletteColors.forEach(c => {
-  const btn = document.createElement("button");
-  btn.style.background = c;
-  btn.onclick = () => {
-    selectedColor = c;
-    updateColorUI();
-  };
-  paletteDiv.appendChild(btn);
-});
+    hexInput.addEventListener("input", () => {
+      const val = hexInput.value.trim();
+      if (/^#[0-9A-Fa-f]{6}$/.test(val)) {
+        selectedColor = val;
+        selectedColorBox.style.background = val;
+      }
+    });
 
-function updateColorUI() {
-  selectedColorBox.style.background = selectedColor;
-  hexInput.value = selectedColor;
-  colorPicker.value = selectedColor;
-}
+    let boundariesData, shapeColors = {}, origWidth, origHeight;
+    let baseCanvases = [], coloringCanvas, coloringCtx;
 
-hexInput.addEventListener("input", () => {
-  const val = hexInput.value.trim();
-  if (/^#([0-9A-Fa-f]{6})$/.test(val)) {
-    selectedColor = val;
-    updateColorUI();
-  }
-});
+    function pointInPolygon(x, y, polygon) {
+      let inside = false;
+      for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const xi = polygon[i][0], yi = polygon[i][1];
+        const xj = polygon[j][0], yj = polygon[j][1];
+        const intersect = ((yi > y) !== (yj > y)) &&
+          (x < (xj - xi) * (y - yi) / ((yj - yi) || 1) + xi);
+        if (intersect) inside = !inside;
+      }
+      return inside;
+    }
 
-colorPicker.addEventListener("input", () => {
-  selectedColor = colorPicker.value;
-  updateColorUI();
-});
-
-clearBtn.onclick = () => {
-  shapeColors = {};
-  redrawColors();
-  clickResults.textContent = "Clicked Shape Indexes:";
-};
-
-// Ray-casting point in polygon test
-function pointInPolygon(x, y, polygon) {
-  let inside = false;
-  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-    const xi = polygon[i][0], yi = polygon[i][1];
-    const xj = polygon[j][0], yj = polygon[j][1];
-    const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / ((yj - yi) + 1e-10) + xi);
-    if (intersect) inside = !inside;
-  }
-  return inside;
-}
-
-function getClickedShapeIndex(x, y) {
-  for (let index = 0; index < boundariesData.boundaries.length; index++) {
-    const shape = boundariesData.boundaries[index];
-    if (pointInPolygon(x, y, shape.outer)) {
-      if (shape.inner && Array.isArray(shape.inner)) {
-        let inHole = false;
-        for (const hole of shape.inner) {
-          if (pointInPolygon(x, y, hole)) {
-            inHole = true;
-            break;
-          }
+    function getClickedShapeIndex(x, y) {
+      for (let i = 0; i < boundariesData.boundaries.length; i++) {
+        const shape = boundariesData.boundaries[i];
+        if (pointInPolygon(x, y, shape.outer)) {
+          if (shape.inner?.some(hole => pointInPolygon(x, y, hole))) continue;
+          return i;
         }
-        if (!inHole) return index;
-      } else {
-        return index;
+      }
+      return null;
+    }
+
+    function fillShape(ctx, shape, color) {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(shape.outer[0][0], shape.outer[0][1]);
+      shape.outer.forEach(([x, y]) => ctx.lineTo(x, y));
+      ctx.closePath();
+      shape.inner?.forEach(hole => {
+        ctx.moveTo(hole[0][0], hole[0][1]);
+        hole.forEach(([x, y]) => ctx.lineTo(x, y));
+        ctx.closePath();
+      });
+      ctx.fill("evenodd");
+    }
+
+    function redrawColors(ctx) {
+      ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+      for (const index in shapeColors) {
+        fillShape(ctx, boundariesData.boundaries[index], shapeColors[index]);
       }
     }
-  }
-  return null;
-}
 
-function fillShape(ctx, shape, color) {
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  const outer = shape.outer;
-  ctx.moveTo(outer[0][0], outer[0][1]);
-  for (let i = 1; i < outer.length; i++) ctx.lineTo(outer[i][0], outer[i][1]);
-  if (shape.inner && Array.isArray(shape.inner)) {
-    shape.inner.forEach(hole => {
-      ctx.moveTo(hole[0][0], hole[0][1]);
-      for (let i = 1; i < hole.length; i++) ctx.lineTo(hole[i][0], hole[i][1]);
-    });
-  }
-  ctx.closePath();
-  ctx.fill("evenodd");
-}
+    function resizeCanvases() {
+      const aspect = origWidth / origHeight;
+      const maxW = window.innerWidth * 0.9;
+      const maxH = window.innerHeight * 0.7;
 
-function redrawColors() {
-  coloringCtx.clearRect(0, 0, origWidth, origHeight);
-  for (const index in shapeColors) {
-    fillShape(coloringCtx, boundariesData.boundaries[index], shapeColors[index]);
-  }
-}
+      const scale = Math.min(maxW / origWidth, maxH / origHeight);
+      const width = origWidth * scale;
+      const height = origHeight * scale;
 
-let coloringCanvas, coloringCtx, baseCanvases = [];
+      [ ...baseCanvases, coloringCanvas ].forEach(c => {
+        c.style.width = width + "px";
+        c.style.height = height + "px";
+      });
 
-function resizeCanvases() {
-  const containerWidth = window.innerWidth * 0.8;
-  const containerHeight = window.innerHeight * 0.8;
-  const aspect = origWidth / origHeight;
-  let displayW, displayH;
-
-  if (containerWidth / containerHeight > aspect) {
-    displayH = containerHeight;
-    displayW = displayH * aspect;
-  } else {
-    displayW = containerWidth;
-    displayH = displayW / aspect;
-  }
-
-  container.style.width = displayW + "px";
-  container.style.height = displayH + "px";
-
-  [...baseCanvases, coloringCanvas].forEach(c => {
-    c.style.width = displayW + "px";
-    c.style.height = displayH + "px";
-  });
-
-  canvasSizeSpan.textContent = `${origWidth} x ${origHeight}`;
-}
-
-async function start() {
-  // Load images and boundaries JSON from your new default URLs
-  const [imgRes, boundsRes] = await Promise.all([
-    fetch(defaultImageURL),
-    fetch(defaultBoundariesURL)
-  ]);
-  const imageData = await imgRes.json();        // expects array of image URLs
-  boundariesData = await boundsRes.json();      // expects boundaries object with .width, .height, .boundaries[]
-
-  origWidth = boundariesData.width;
-  origHeight = boundariesData.height;
-
-  // Create one canvas per image layer and draw the image
-  baseCanvases = imageData.map(() => {
-    const c = document.createElement("canvas");
-    c.width = origWidth;
-    c.height = origHeight;
-    container.appendChild(c);
-    return c;
-  });
-
-  imageData.forEach((src, i) => {
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      baseCanvases[i].getContext("2d").drawImage(img, 0, 0, origWidth, origHeight);
-    };
-    img.src = src;
-  });
-
-  // Setup coloring overlay canvas on top
-  coloringCanvas = document.createElement("canvas");
-  coloringCanvas.width = origWidth;
-  coloringCanvas.height = origHeight;
-  coloringCanvas.style.position = "absolute";
-  container.appendChild(coloringCanvas);
-  coloringCtx = coloringCanvas.getContext("2d");
-
-  coloringCanvas.addEventListener("mousemove", e => {
-    const rect = coloringCanvas.getBoundingClientRect();
-    const scaleX = origWidth / rect.width;
-    const scaleY = origHeight / rect.height;
-    const x = Math.floor((e.clientX - rect.left) * scaleX);
-    const y = Math.floor((e.clientY - rect.top) * scaleY);
-    coordsSpan.textContent = `Coords: ${x}, ${y}`;
-  });
-
-  coloringCanvas.addEventListener("click", e => {
-    const rect = coloringCanvas.getBoundingClientRect();
-    const scaleX = origWidth / rect.width;
-    const scaleY = origHeight / rect.height;
-    const x = (e.clientX - rect.left) * scaleX;
-    const y = (e.clientY - rect.top) * scaleY;
-    const index = getClickedShapeIndex(x, y);
-    if (index !== null) {
-      shapeColors[index] = selectedColor;
-      redrawColors();
-      clickResults.textContent += ` ${index}`;
+      container.style.width = width + "px";
+      container.style.height = height + "px";
+      canvasSizeSpan.textContent = `${origWidth} x ${origHeight}`;
     }
-  });
 
-  resizeCanvases();
-  window.addEventListener("resize", resizeCanvases);
-}
+    async function start() {
+      const [imagesRes, boundsRes] = await Promise.all([
+        fetch(defaultImageURL),
+        fetch(defaultBoundariesURL)
+      ]);
+      const imageData = await imagesRes.json();
+      boundariesData = await boundsRes.json();
 
-start();
-</script>
+      origWidth = boundariesData.width;
+      origHeight = boundariesData.height;
+
+      // Base layers
+      baseCanvases = imageData.map(() => {
+        const c = document.createElement("canvas");
+        c.width = origWidth;
+        c.height = origHeight;
+        container.appendChild(c);
+        return c;
+      });
+
+      imageData.forEach((src, i) => {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => baseCanvases[i].getContext("2d").drawImage(img, 0, 0);
+        img.src = src;
+      });
+
+      coloringCanvas = document.createElement("canvas");
+      coloringCanvas.width = origWidth;
+      coloringCanvas.height = origHeight;
+      container.appendChild(coloringCanvas);
+      coloringCtx = coloringCanvas.getContext("2d");
+
+      resizeCanvases();
+      window.addEventListener("resize", resizeCanvases);
+
+      coloringCanvas.addEventListener("mousemove", e => {
+        const rect = coloringCanvas.getBoundingClientRect();
+        const x = Math.floor((e.clientX - rect.left) * (origWidth / rect.width));
+        const y = Math.floor((e.clientY - rect.top) * (origHeight / rect.height));
+        coordsSpan.textContent = (x >= 0 && y >= 0) ? `${x}, ${y}` : "??, ??";
+      });
+
+      coloringCanvas.addEventListener("click", e => {
+        const rect = coloringCanvas.getBoundingClientRect();
+        const x = (e.clientX - rect.left) * (origWidth / rect.width);
+        const y = (e.clientY - rect.top) * (origHeight / rect.height);
+        const shapeIndex = getClickedShapeIndex(x, y);
+        if (shapeIndex !== null) {
+          shapeColors[shapeIndex] = selectedColor;
+          redrawColors(coloringCtx);
+        }
+      });
+    }
+
+    start();
+  </script>
 </body>
 </html>
