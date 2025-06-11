@@ -181,26 +181,40 @@
     }
   }
 
-  function resizeCanvas() {
-    const maxWidth = window.innerWidth * 0.8;
-    const maxHeight = window.innerHeight * 0.8;
-    const aspect = origWidth / origHeight;
+function resizeCanvas() {
+  const maxWidth = window.innerWidth * 0.8;
+  const maxHeight = window.innerHeight * 0.8;
+  const aspect = origWidth / origHeight;
 
-    let displayWidth, displayHeight;
-    if (maxWidth / maxHeight > aspect) {
-      displayHeight = maxHeight;
-      displayWidth = maxHeight * aspect;
-    } else {
-      displayWidth = maxWidth;
-      displayHeight = maxWidth / aspect;
-    }
-
-    container.style.width = displayWidth + "px";
-    container.style.height = displayHeight + "px";
-
-    coloringCanvas.style.width = displayWidth + "px";
-    coloringCanvas.style.height = displayHeight + "px";
+  let displayWidth, displayHeight;
+  if (maxWidth / maxHeight > aspect) {
+    displayHeight = maxHeight;
+    displayWidth = maxHeight * aspect;
+  } else {
+    displayWidth = maxWidth;
+    displayHeight = maxWidth / aspect;
   }
+
+  container.style.width = displayWidth + "px";
+  container.style.height = displayHeight + "px";
+
+  // Set canvas CSS size
+  coloringCanvas.style.width = displayWidth + "px";
+  coloringCanvas.style.height = displayHeight + "px";
+
+  // Set canvas internal pixel size for sharpness:
+  const dpr = window.devicePixelRatio || 1;
+  coloringCanvas.width = Math.floor(displayWidth * dpr);
+  coloringCanvas.height = Math.floor(displayHeight * dpr);
+
+  // Scale context to match DPR and aspect
+  coloringCtx.setTransform(1, 0, 0, 1, 0, 0); // reset any existing transforms
+  coloringCtx.scale(dpr * (displayWidth / origWidth), dpr * (displayHeight / origHeight));
+
+  // Redraw shapes after resize
+  redrawColors(coloringCtx);
+}
+
 
   async function start() {
     const boundsRes = await fetch(boundariesURL);
