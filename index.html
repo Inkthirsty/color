@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Layered Coloring Canvas</title>
+<title>Layered Coloring Canvas with Coordinates</title>
 <style>
   body {
     background: #111;
@@ -57,6 +57,11 @@
     background: transparent;
     user-select: none;
   }
+  #infoBox {
+    margin-top: 10px;
+    font-family: monospace;
+    font-size: 14px;
+  }
 </style>
 </head>
 <body>
@@ -67,17 +72,22 @@
     <input id="hexInput" type="text" placeholder="#RRGGBB" maxlength="7" />
   </div>
   <div id="container"></div>
+  <div id="infoBox">
+    Coordinates: <span id="coords">??, ??</span> |
+    Canvas Size: <span id="canvasSize">?? x ??</span>
+  </div>
 
 <script>
-  const defaultImageURL = "https://files.catbox.moe/bof1hi.json"; // image URLs array JSON
-  const defaultBoundariesURL = "https://files.catbox.moe/rb204s.json"; // boundaries JSON
+  const defaultImageURL = "https://files.catbox.moe/bof1hi.json";
+  const defaultBoundariesURL = "https://files.catbox.moe/rb204s.json";
 
   const container = document.getElementById("container");
   const paletteDiv = document.getElementById("palette");
   const selectedColorBox = document.getElementById("selectedColor");
   const hexInput = document.getElementById("hexInput");
+  const coordsSpan = document.getElementById("coords");
+  const canvasSizeSpan = document.getElementById("canvasSize");
 
-  // Default colors for palette
   const paletteColors = ["#ffffff", "#ff0000", "#00ff00", "#0000ff", "#ffff00", "#ff00ff", "#00ffff"];
   let selectedColor = "#ffffff";
 
@@ -108,12 +118,10 @@
   let shapeColors = {};
   let origWidth, origHeight;
 
-  // Create canvas for base images and coloring
   let baseCanvases = [];
   let coloringCanvas;
   let coloringCtx;
 
-  // Point in polygon function (ray casting)
   function pointInPolygon(x, y, polygon) {
     let inside = false;
     for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
@@ -165,9 +173,7 @@
 
   function redrawColors(ctx) {
     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-    // Use globalCompositeOperation for smooth tinting
     ctx.globalCompositeOperation = "source-over";
-
     for (const index in shapeColors) {
       fillShape(ctx, boundariesData.boundaries[index], shapeColors[index]);
     }
@@ -190,7 +196,6 @@
     container.style.width = displayWidth + "px";
     container.style.height = displayHeight + "px";
 
-    // Set CSS size to scale canvases, keep internal resolution the same
     baseCanvases.forEach(c => {
       c.style.width = displayWidth + "px";
       c.style.height = displayHeight + "px";
@@ -198,10 +203,12 @@
 
     coloringCanvas.style.width = displayWidth + "px";
     coloringCanvas.style.height = displayHeight + "px";
+
+    // Update canvas size info
+    canvasSizeSpan.textContent = `${origWidth} x ${origHeight}`;
   }
 
   async function start() {
-    // Fetch both JSONs
     const [imagesRes, boundsRes] = await Promise.all([
       fetch(defaultImageURL),
       fetch(defaultBoundariesURL)
@@ -212,7 +219,6 @@
     origWidth = boundariesData.width;
     origHeight = boundariesData.height;
 
-    // Create base canvases for layers
     baseCanvases = imageData.map(() => {
       const c = document.createElement("canvas");
       c.width = origWidth;
@@ -222,7 +228,6 @@
       return c;
     });
 
-    // Draw each image layer onto its canvas
     imageData.forEach((src, i) => {
       const img = new Image();
       img.crossOrigin = "anonymous";
@@ -234,7 +239,6 @@
       img.src = src;
     });
 
-    // Create coloring canvas on top
     coloringCanvas = document.createElement("canvas");
     coloringCanvas.width = origWidth;
     coloringCanvas.height = origHeight;
@@ -242,18 +246,28 @@
     container.appendChild(coloringCanvas);
     coloringCtx = coloringCanvas.getContext("2d");
 
-    // Initial resize
     resizeCanvases();
+    window.addEventListener("resize", resizeCanvases);
 
-    // Handle window resizing
-    window.addEventListener("resize", () => {
-      resizeCanvases();
+    coloringCanvas.addEventListener("mousemove", e => {
+      const rect = coloringCanvas.getBoundingClientRect();
+
+      const scaleX = origWidth / rect.width;
+      const scaleY = origHeight / rect.height;
+
+      const mouseX = Math.floor((e.clientX - rect.left) * scaleX);
+      const mouseY = Math.floor((e.clientY - rect.top) * scaleY);
+
+      if(mouseX < 0 || mouseY < 0 || mouseX > origWidth || mouseY > origHeight) {
+        coordsSpan.textContent = `??, ??`;
+      } else {
+        coordsSpan.textContent = `${mouseX}, ${mouseY}`;
+      }
     });
 
     coloringCanvas.addEventListener("click", e => {
       const rect = coloringCanvas.getBoundingClientRect();
 
-      // Scale mouse coords back to original image coords
       const scaleX = origWidth / rect.width;
       const scaleY = origHeight / rect.height;
 
