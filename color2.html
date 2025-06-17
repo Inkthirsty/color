@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Improved Vector Coloring with Rainbow Palette</title>
+<style>
+  /* Reset and base */
+  html, body {
+    margin: 0; padding: 10px;
+    height: 100%;
+    background: white;
+    color: black;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    user-select: none;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  /* Palette container */
+  #palette {
+    margin-bottom: 10px;
+  }
+  #palette button {
+    width: 32px;
+    height: 32px;
+    border: none;
+    margin: 0 5px;
+    cursor: pointer;
+    border-radius: 5px;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    user-select: none;
+  }
+  #palette button:hover {
+    transform: scale(1.2);
+  }
+  #palette button.selected {
+    box-shadow: 0 0 6px 3px black;
+    transform: scale(1.3);
+  }
+
+  /* Controls wrapper with flex for neat alignment */
+  #colorControls {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    margin-bottom: 15px;
+  }
+
+  /* Selected color display */
+  #selectedColor {
+    width: 40px;
+    height: 40px;
+    border: 2px solid black;
+    border-radius: 6px;
+    box-shadow: 0 0 10px #0008;
+    cursor: pointer;
+  }
+
+  /* Clear button style */
+  #clearBtn {
+    padding: 8px 16px;
+    font-size: 14px;
+    border-radius: 6px;
+    border: none;
+    background: #cc3333;
+    color: white;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+    user-select: none;
+  }
+  #clearBtn:hover {
+    background: #ff4444;
+  }
+
+  /* Container for canvas */
+  #container {
+    flex-grow: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+    max-width: 900px;
+    max-height: 90vh;
+  }
+
+  /* Canvas style */
+  canvas {
+    background: black;
+    border: 6px solid black;
+    user-select: none;
+    display: block;
+  }
+</style>
+</head>
+<body>
+
+<div id="palette"></div>
+<div id="colorControls">
+  <div id="selectedColor" title="Selected Color"></div>
+  <button id="clearBtn" title="Clear all colors">Clear Canvas</button>
+</div>
+<div id="container"></div>
+
+<script>
+  // Helper to get URL params (if needed)
+  function getUrlParam(key) {
+    const params = new URLSearchParams(window.location.search);
+    return params.get(key);
+  }
+
+  // Default boundaries JSON URL
+  const defaultBoundariesURL = "https://files.catbox.moe/etaeai.json";
+  const boundariesURL = getUrlParam("boundaries") || defaultBoundariesURL;
+
+  // Palette colors
+  const paletteColors = [
+    "#FFFFFF", // white first
+    "#FF0000", "#FF7F00", "#FFFF00", "#00FF00", "#0000FF", "#4B0082", "#8B00FF",
+    "#FF9999", "#FFBF80", "#FFFF99", "#99FF99", "#9999FF", "#B399FF",
+    "#800000", "#804000", "#808000", "#004000", "#000080", "#330066"
+  ];
+
+  // Elements
+  const paletteDiv = document.getElementById("palette");
+  const selectedColorBox = document.getElementById("selectedColor");
+  const clearBtn = document.getElementById("clearBtn");
+  const container = document.getElementById("container");
+
+  // Selected color state
+  let selectedColor = paletteColors[0];
+
+  function updateSelectedColor(color) {
+    selectedColor = color;
+    selectedColorBox.style.background = color;
+    // Update selected button styling
+    paletteDiv.querySelectorAll("button").forEach(btn => {
+      btn.classList.toggle("selected", btn.style.backgroundColor.toLowerCase() === color.toLowerCase());
+    });
+  }
+
+  // Build palette UI
+  paletteColors.forEach(color => {
+    const btn = document.createElement("button");
+    btn.style.background = color;
+    btn.title = color;
+    btn.onclick = () => updateSelectedColor(color);
+    paletteDiv.appendChild(btn);
+  });
+
+  // Initialize selection highlight
+  updateSelectedColor(selectedColor);
+
+  // Variables for canvas and data
+  let boundariesData;
+  let shapeColors = {};
+  let origWidth, origHeight;
+  let coloringCanvas, coloringCtx;
+
+  // Ray casting algorithm to check if point inside polygon
+  function pointInPolygon(x, y, polygon) {
+    let inside = false;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      const xi = polygon[i][0], yi = polygon[i][1];
+      const xj = polygon[j][0], yj = polygon[j][1];
+      if (yi === yj) continue; // skip horizontal edges
+      const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+
+  // Return index of shape clicked or null
+  function getClickedShapeIndex(x, y) {
+    for (let index = 0; index < boundariesData.boundaries.length; index++) {
+      const shape = boundariesData.boundaries[index];
+      if (pointInPolygon(x, y, shape.outer)) {
+        if (shape.inner) {
+          let insideHole = false;
+          for (const hole of shape.inner) {
+            if (pointInPolygon(x, y, hole)) {
+              insideHole = true;
+              break;
+            }
+          }
+          if (!insideHole) return index;
+        } else {
+          return index;
+        }
+      }
+    }
+    return null;
+  }
+
+  // Fill a shape with color, including holes using "evenodd" rule
+  function fillShape(ctx, shape, color) {
+    ctx.fillStyle = color || "#FFFFFF";
+    ctx.beginPath();
+    const outer = shape.outer;
+    ctx.moveTo(outer[0][0], outer[0][1]);
+    for (let i = 1; i < outer.length; i++) ctx.lineTo(outer[i][0], outer[i][1]);
+    ctx.closePath();
+
+    if (shape.inner) {
+      shape.inner.forEach(hole => {
+        ctx.moveTo(hole[0][0], hole[0][1]);
+        for (let i = 1; i < hole.length; i++) ctx.lineTo(hole[i][0], hole[i][1]);
+        ctx.closePath();
+      });
+    }
+    ctx.fill("evenodd");
+  }
+
+  // Redraw all shapes with their colors
+  function redrawColors(ctx) {
+    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    ctx.globalCompositeOperation = "source-over";
+    for (const index in boundariesData.boundaries) {
+      fillShape(ctx, boundariesData.boundaries[index], shapeColors[index]);
+    }
+  }
+
+  // Resize canvas and container to max size fitting viewport with correct aspect ratio
+  function resizeCanvas() {
+    const maxWidth = window.innerWidth * 0.95;
+    const maxHeight = window.innerHeight * 0.85;
+    const aspect = origWidth / origHeight;
+
+    let displayWidth, displayHeight;
+    if (maxWidth / maxHeight > aspect) {
+      displayHeight = maxHeight;
+      displayWidth = maxHeight * aspect;
+    } else {
+      displayWidth = maxWidth;
+      displayHeight = maxWidth / aspect;
+    }
+
+    container.style.width = displayWidth + "px";
+    container.style.height = displayHeight + "px";
+
+    const dpr = window.devicePixelRatio || 1;
+
+    // Set internal canvas resolution for crispness
+    coloringCanvas.width = Math.floor(origWidth * dpr);
+    coloringCanvas.height = Math.floor(origHeight * dpr);
+
+    // CSS size controls display size
+    coloringCanvas.style.width = displayWidth + "px";
+    coloringCanvas.style.height = displayHeight + "px";
+
+    // Reset transform and scale for DPR
+    coloringCtx.setTransform(1, 0, 0, 1, 0, 0);
+    coloringCtx.scale(dpr, dpr);
+
+    // Redraw all colored shapes
+    redrawColors(coloringCtx);
+  }
+
+  async function start() {
+    // Load boundary shapes JSON
+    const boundsRes = await fetch(boundariesURL);
+    boundariesData = await boundsRes.json();
+
+    origWidth = boundariesData.width;
+    origHeight = boundariesData.height;
+
+    // Create canvas element and add to container
+    coloringCanvas = document.createElement("canvas");
+    coloringCanvas.style.position = "relative";
+    coloringCanvas.style.border = "6px solid black";
+    container.appendChild(coloringCanvas);
+    coloringCtx = coloringCanvas.getContext("2d");
+
+    // Initial draw
+    redrawColors(coloringCtx);
+    resizeCanvas();
+
+    // On window resize, adjust canvas size
+    window.addEventListener("resize", resizeCanvas);
+
+    // Canvas click to color shape
+    coloringCanvas.addEventListener("click", e => {
+      const rect = coloringCanvas.getBoundingClientRect();
+      const scaleX = origWidth / rect.width;
+      const scaleY = origHeight / rect.height;
+      const x = (e.clientX - rect.left) * scaleX;
+      const y = (e.clientY - rect.top) * scaleY;
+
+      const shapeIndex = getClickedShapeIndex(x, y);
+      if (shapeIndex !== null) {
+        shapeColors[shapeIndex] = selectedColor;
+        redrawColors(coloringCtx);
+      }
+    });
+
+    // Clear canvas colors
+    clearBtn.addEventListener("click", () => {
+      shapeColors = {};
+      redrawColors(coloringCtx);
+    });
+  }
+
+  // Run start function
+  start();
+</script>
+
+</body>
+</html>
