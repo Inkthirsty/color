@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Vector Coloring with Palette & Native Color Picker</title>
+<style>
+  html, body {
+    margin: 0; padding: 10px;
+    height: 100%;
+    background: white;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    user-select: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow: hidden;
+  }
+  #palette {
+    margin-bottom: 10px;
+    padding: 6px 12px;
+    border: 2px solid #000000; /* black border */
+    border-radius: 8px;
+    background: white;
+    display: inline-flex;
+    gap: 6px;
+  }
+  #palette button {
+    width: 32px;
+    height: 32px;
+    border: none;
+    cursor: pointer;
+    border-radius: 5px;
+    box-shadow: 0 0 4px 1px rgba(0,0,0,0.3); /* drop shadow */
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  #palette button:hover {
+    transform: scale(1.2);
+    box-shadow: 0 0 6px 3px rgba(0,0,0,0.5);
+  }
+  #palette button.selected {
+    box-shadow: 0 0 8px 4px #222222;
+    transform: scale(1.3);
+  }
+  #colorControls {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 15px;
+    margin-bottom: 15px;
+  }
+  #selectedColor {
+    width: 40px;
+    height: 40px;
+    border: 2px solid #222222; /* dark grey border */
+    border-radius: 6px;
+    box-shadow: 0 0 10px #00000088;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  #clearBtn {
+    padding: 8px 16px;
+    font-size: 14px;
+    border-radius: 6px;
+    border: none;
+    background: #cc3333;
+    color: white;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+    user-select: none;
+  }
+  #clearBtn:hover {
+    background: #ff4444;
+  }
+  #container {
+    flex-grow: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+    max-width: 900px;
+    max-height: 90vh;
+    position: relative;
+  }
+  canvas {
+    background: #000000; /* pure black */
+    border: 6px solid #000000; /* pure black border */
+    user-select: none;
+    display: block;
+    max-width: 100%;
+    max-height: 100%;
+    height: auto;
+    width: auto;
+  }
+  /* Hide native color input but keep it functional */
+  #colorWheel {
+    position: absolute;
+    width: 0;
+    height: 0;
+    opacity: 0;
+    pointer-events: none;
+    user-select: none;
+  }
+</style>
+</head>
+<body>
+
+  <div id="palette"></div>
+
+  <div id="colorControls">
+    <div id="selectedColor" title="Click to open color picker"></div>
+    <button id="clearBtn" title="Clear all colors">Clear Canvas</button>
+  </div>
+
+  <div id="container"></div>
+
+  <input type="color" id="colorWheel" aria-label="Color picker" />
+
+<script>
+  const defaultBoundariesURL = "https://files.catbox.moe/etaeai.json";
+
+  const paletteColors = [
+    "#222222", // dark grey instead of black
+    "#FFFFFF", // white
+    "#FF0000", // red
+    "#00FF00", // green
+    "#0000FF", // blue
+    "#FFFF00", // yellow
+    "#FFA500", // orange
+    "#800080"  // purple
+  ];
+
+  const paletteDiv = document.getElementById("palette");
+  const selectedColorBox = document.getElementById("selectedColor");
+  const clearBtn = document.getElementById("clearBtn");
+  const container = document.getElementById("container");
+  const colorWheelInput = document.getElementById("colorWheel");
+
+  let selectedColor = paletteColors[0];
+  let boundariesData;
+  let shapeColors = {};
+  let origWidth, origHeight;
+  let coloringCanvas, coloringCtx;
+
+  // Update selected color display & palette highlights
+  function updateSelectedColor(color) {
+    selectedColor = color;
+    selectedColorBox.style.background = color;
+
+    paletteDiv.querySelectorAll("button").forEach(btn => {
+      const btnColor = btn.style.backgroundColor.toLowerCase();
+      btn.classList.toggle("selected", (btnColor === color.toLowerCase()));
+    });
+  }
+
+  // Build palette UI
+  paletteColors.forEach(color => {
+    const btn = document.createElement("button");
+    btn.style.background = color;
+    btn.title = color;
+    btn.onclick = () => {
+      updateSelectedColor(color);
+    };
+    paletteDiv.appendChild(btn);
+  });
+
+  updateSelectedColor(selectedColor);
+
+  function pointInPolygon(x, y, polygon) {
+    let inside = false;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      const xi = polygon[i][0], yi = polygon[i][1];
+      const xj = polygon[j][0], yj = polygon[j][1];
+      if (yi === yj) continue;
+      const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+
+  function getClickedShapeIndex(x, y) {
+    for (let index = 0; index < boundariesData.boundaries.length; index++) {
+      const shape = boundariesData.boundaries[index];
+      if (pointInPolygon(x, y, shape.outer)) {
+        if (shape.inner) {
+          let insideHole = false;
+          for (const hole of shape.inner) {
+            if (pointInPolygon(x, y, hole)) {
+              insideHole = true;
+              break;
+            }
+          }
+          if (!insideHole) return index;
+        } else {
+          return index;
+        }
+      }
+    }
+    return null;
+  }
+
+  function fillShape(ctx, shape, color) {
+    ctx.fillStyle = color || "#FFFFFF";
+    ctx.beginPath();
+    const outer = shape.outer;
+    ctx.moveTo(outer[0][0], outer[0][1]);
+    for (let i = 1; i < outer.length; i++) ctx.lineTo(outer[i][0], outer[i][1]);
+    ctx.closePath();
+
+    if (shape.inner) {
+      shape.inner.forEach(hole => {
+        ctx.moveTo(hole[0][0], hole[0][1]);
+        for (let i = 1; i < hole.length; i++) ctx.lineTo(hole[i][0], hole[i][1]);
+        ctx.closePath();
+      });
+    }
+    ctx.fill("evenodd");
+  }
+
+  function redrawColors(ctx) {
+    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    ctx.globalCompositeOperation = "source-over";
+    for (const index in boundariesData.boundaries) {
+      fillShape(ctx, boundariesData.boundaries[index], shapeColors[index]);
+    }
+  }
+
+  function resizeCanvas() {
+    const maxWidth = window.innerWidth * 0.95;
+    const maxHeight = window.innerHeight * 0.85;
+    const aspect = origWidth / origHeight;
+
+    let displayWidth, displayHeight;
+    if (maxWidth / maxHeight > aspect) {
+      displayHeight = maxHeight;
+      displayWidth = maxHeight * aspect;
+    } else {
+      displayWidth = maxWidth;
+      displayHeight = maxWidth / aspect;
+    }
+
+    container.style.width = displayWidth + "px";
+    container.style.height = displayHeight + "px";
+
+    const dpr = window.devicePixelRatio || 1;
+
+    coloringCanvas.width = Math.floor(origWidth * dpr);
+    coloringCanvas.height = Math.floor(origHeight * dpr);
+
+    coloringCanvas.style.width = displayWidth + "px";
+    coloringCanvas.style.height = displayHeight + "px";
+
+    coloringCtx.setTransform(1, 0, 0, 1, 0, 0);
+    coloringCtx.scale(dpr, dpr);
+
+    redrawColors(coloringCtx);
+  }
+
+  function rgbToHex(rgb) {
+    const result = rgb.match(/\d+/g);
+    if (!result) return "#000000";
+    return "#" + result.map(x => {
+      const hex = parseInt(x).toString(16);
+      return hex.length === 1 ? "0" + hex : hex;
+    }).join("");
+  }
+
+  function initColoring(boundaries) {
+    boundariesData = boundaries;
+
+    origWidth = boundaries.width;
+    origHeight = boundaries.height;
+
+    coloringCanvas = document.createElement("canvas");
+    coloringCanvas.id = "coloringCanvas";
+    container.appendChild(coloringCanvas);
+    coloringCtx = coloringCanvas.getContext("2d");
+
+    resizeCanvas();
+
+    coloringCanvas.addEventListener("pointerdown", e => {
+      e.preventDefault();
+      const rect = coloringCanvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const scaleX = origWidth / (rect.width * dpr);
+      const scaleY = origHeight / (rect.height * dpr);
+
+      const clickX = (e.clientX - rect.left) * dpr * scaleX;
+      const clickY = (e.clientY - rect.top) * dpr * scaleY;
+
+      const shapeIndex = getClickedShapeIndex(clickX, clickY);
+      if (shapeIndex === null) return;
+
+      if (shapeColors[shapeIndex] === selectedColor) {
+        delete shapeColors[shapeIndex];
+      } else {
+        shapeColors[shapeIndex] = selectedColor;
+      }
+      redrawColors(coloringCtx);
+    });
+
+    window.addEventListener("resize", () => {
+      resizeCanvas();
+    });
+  }
+
+  clearBtn.onclick = () => {
+    shapeColors = {};
+    redrawColors(coloringCtx);
+  };
+
+  // Clicking the selectedColor box opens the native color picker immediately
+  selectedColorBox.addEventListener("click", () => {
+    colorWheelInput.click();
+  });
+
+  colorWheelInput.addEventListener("input", () => {
+    updateSelectedColor(colorWheelInput.value);
+  });
+
+  colorWheelInput.addEventListener("change", () => {
+    // optional: close color picker UI if you had a custom one
+  });
+
+  // Fetch boundaries JSON and initialize
+  const urlParams = new URLSearchParams(window.location.search);
+  const imageParam = urlParams.get('image');
+  const boundariesURL = imageParam || defaultBoundariesURL;
+
+  fetch(boundariesURL).then(res => res.json()).then(data => {
+    initColoring(data);
+  }).catch(e => {
+    alert("Failed to load boundaries data.");
+    console.error(e);
+  });
+</script>
+</body>
+</html>
