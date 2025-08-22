@@ -24,6 +24,7 @@
     background: white;
     display: inline-flex;
     gap: 6px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1); /* subtle shadow for depth */
   }
   #palette button {
     width: 32px;
@@ -57,6 +58,7 @@
     box-shadow: 0 0 10px #00000088;
     cursor: pointer;
     flex-shrink: 0;
+    transition: background 0.3s ease;
   }
   #clearBtn {
     padding: 8px 16px;
@@ -91,6 +93,7 @@
     max-height: 100%;
     height: auto;
     width: auto;
+    box-shadow: 0 8px 16px rgba(0,0,0,0.2); /* add a drop shadow to the canvas */
   }
   /* Hide native color input but keep it functional */
   #colorWheel {
